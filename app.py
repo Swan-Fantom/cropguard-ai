@@ -10,9 +10,9 @@ else) can get a prediction over HTTP.
     GET  /          -> service info
 
 The model is loaded ONCE at startup (FastAPI lifespan) and reused for every
-request — loading Swin per-request would be far too slow. Preprocessing and the
-architecture come from the shared model.py / preprocessing.py, so the API can
-never drift from your validated Kaggle results.
+request — reloading per-request would be far too slow. Preprocessing and the
+model build come from the shared model.py / preprocessing.py, so the API can
+never drift from the validated training results.
 
 Run it:
     pip install -r requirements.txt
@@ -20,15 +20,12 @@ Run it:
 Then open the interactive docs at  http://127.0.0.1:8000/docs
 
 Config (optional env vars):
-    CROPGUARD_BACKEND           default "levit"   ("levit" | "swin")
-    CROPGUARD_CHECKPOINT        default "levit_cropguard.pth" (levit) / "swin_cropguard.pth" (swin)
-    CROPGUARD_CLASSES           default "class_names.json"  (swin only; levit reads classes from its checkpoint)
-    CROPGUARD_SWIN_REPO         default "Swin-Transformer"   (swin only)
+    CROPGUARD_CHECKPOINT        default "levit_cropguard.pth"
     CROPGUARD_CONF_THRESHOLD    default "0.70"   (below this -> is_confident=false)
     CROPGUARD_MAX_UPLOAD_MB     default "10"
     CROPGUARD_TOPK              default "3"
-    CROPGUARD_CAM_ALPHA         default "0.45"  (heatmap blend strength; swin /explain only)
-    CROPGUARD_CAM_STAGE         default "combined"  ("last" | "penultimate" | "combined"; swin only)
+    CROPGUARD_CAM_ALPHA         default "0.45"  (heatmap blend strength)
+    CROPGUARD_CAM_STAGE         default "combined"  ("last" | "penultimate" | "combined")
 """
 
 import io
@@ -51,19 +48,12 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s  %(levelname)s  %(me
 logger = logging.getLogger("cropguard")
 
 # --- Configuration (env vars override) ----------------------------------------
-# BACKEND picks which trained model to serve:
-#   "levit" (default) -> the field-trained timm LeViT from train_levit.py
-#   "swin"            -> the original from-scratch Microsoft Swin-Tiny
-BACKEND = os.getenv("CROPGUARD_BACKEND", "levit").strip().lower()
-_default_ckpt = "levit_cropguard.pth" if BACKEND == "levit" else "swin_cropguard.pth"
-CHECKPOINT = os.getenv("CROPGUARD_CHECKPOINT", _default_ckpt)
-CLASSES = os.getenv("CROPGUARD_CLASSES", "class_names.json")      # swin only; levit reads classes from its checkpoint
-SWIN_REPO = os.getenv("CROPGUARD_SWIN_REPO", "Swin-Transformer")  # swin only
+CHECKPOINT = os.getenv("CROPGUARD_CHECKPOINT", "levit_cropguard.pth")
 CONF_THRESHOLD = float(os.getenv("CROPGUARD_CONF_THRESHOLD", "0.70"))
 MAX_UPLOAD_MB = float(os.getenv("CROPGUARD_MAX_UPLOAD_MB", "10"))
 TOPK = int(os.getenv("CROPGUARD_TOPK", "3"))
 CAM_ALPHA = float(os.getenv("CROPGUARD_CAM_ALPHA", "0.45"))
-# Grad-CAM resolution: "last" (7x7, coarse/semantic), "penultimate" (14x14, finer),
+# Grad-CAM resolution: "last" (coarse/semantic), "penultimate" (finer),
 # or "combined" (both averaged). Per-request override allowed on /explain.
 CAM_STAGE = os.getenv("CROPGUARD_CAM_STAGE", "combined")
 
@@ -79,15 +69,10 @@ _explain_lock = threading.Lock()
 async def lifespan(app: FastAPI):
     """Load the model once when the server boots; release it on shutdown."""
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    logger.info("Loading CropGuard model (backend=%s) on %s ...", BACKEND, device)
-    if BACKEND == "levit":
-        STATE["model"] = CropGuardModel.load_levit(CHECKPOINT, device)
-    elif BACKEND == "swin":
-        STATE["model"] = CropGuardModel.load(CHECKPOINT, CLASSES, SWIN_REPO, device)
-    else:
-        raise RuntimeError(f"Unknown CROPGUARD_BACKEND '{BACKEND}' — use 'levit' or 'swin'.")
-    logger.info("Model ready: backend=%s, %d classes, threshold=%.2f",
-                BACKEND, STATE["model"].num_classes, CONF_THRESHOLD)
+    logger.info("Loading CropGuard LeViT model on %s ...", device)
+    STATE["model"] = CropGuardModel.load_levit(CHECKPOINT, device)
+    logger.info("Model ready: %d classes, threshold=%.2f",
+                STATE["model"].num_classes, CONF_THRESHOLD)
     yield
     STATE["model"] = None
     logger.info("Model unloaded.")
@@ -95,8 +80,8 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="CropGuard AI",
-    description="Corn-leaf disease classifier — field-trained LeViT (Swin selectable via CROPGUARD_BACKEND).",
-    version="0.3.0",
+    description="Corn-leaf disease classifier — field-trained LeViT with Grad-CAM explanations.",
+    version="1.0.0",
     lifespan=lifespan,
 )
 
@@ -179,7 +164,6 @@ def health():
     model = STATE["model"]
     return {
         "status": "ok" if model is not None else "loading",
-        "backend": BACKEND,
         "num_classes": model.num_classes if model else 0,
         "device": str(model.device) if model else None,
         "confidence_threshold": CONF_THRESHOLD,
@@ -240,12 +224,12 @@ async def explain(file: UploadFile = File(...), stage: Optional[str] = Form(None
     leaf regions drove the diagnosis. Heavier than /predict (adds a backward pass),
     so it's a separate endpoint the UI calls only when it wants the visual.
 
-    Optional `stage` form field tunes heatmap resolution: "last" (7x7, coarse),
-    "penultimate" (14x14, finer), or "combined" (both). Defaults to CROPGUARD_CAM_STAGE."""
+    Optional `stage` form field tunes heatmap resolution: "last" (coarse),
+    "penultimate" (finer), or "combined" (both). Defaults to CROPGUARD_CAM_STAGE."""
     model = _require_model()
 
-    # Grad-CAM works for both backends: the Swin target layers are known, and any
-    # other backend (LeViT) has its token-grid layers auto-discovered in explain.py.
+    # LeViT's token-grid layers are auto-discovered in explain.py, so Grad-CAM
+    # adapts to the installed timm version without hardcoded module paths.
     image = await _load_upload(file)
 
     stage_used = (stage or CAM_STAGE).strip().lower()

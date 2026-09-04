@@ -2,7 +2,7 @@
 
 Step 1 proved the model works from a script. Step 2 turns it into a **web service**: a small API that accepts an uploaded leaf photo over HTTP and returns a JSON prediction. This is the piece your React front-end will call, and later the thing you put in a Docker container and deploy.
 
-Nothing about the model changed — `app.py` loads the exact same Swin-Tiny through the shared `model.py`, using the same `preprocessing.py`. When you later train a more robust model, you drop in the new `.pth` and the API is unchanged.
+Nothing about the model changed — `app.py` loads the trained LeViT through the shared `model.py`, using the same `preprocessing.py`. When you later train an even more robust model, you drop in the new `.pth` and the API is unchanged.
 
 ---
 
@@ -10,7 +10,7 @@ Nothing about the model changed — `app.py` loads the exact same Swin-Tiny thro
 
 | File | Role |
 |------|------|
-| `model.py` | **New.** The reusable core — builds Swin-Tiny, loads weights, runs a prediction. One source of truth. |
+| `model.py` | **New.** The reusable core — builds the LeViT, loads weights, runs a prediction. One source of truth. |
 | `app.py` | **New.** The FastAPI service (`/predict`, `/classes`, `/health`). |
 | `infer.py` | **Refactored** to sit on top of `model.py`. Same CLI, same output as before. |
 | `requirements.txt` | Added `fastapi`, `uvicorn`, `python-multipart`. |
@@ -52,7 +52,7 @@ This is FastAPI's built-in Swagger UI. Expand **POST /predict** → **Try it out
 ## 4. Test it — from the command line
 
 ```bash
-curl -X POST "http://127.0.0.1:8000/predict" -F "file=@RS_Rust_1918.JPG"
+curl -X POST "http://127.0.0.1:8000/predict" -F "file=@Sample_1.jpg"
 ```
 
 ## 5. Test it — from Python
@@ -60,7 +60,7 @@ curl -X POST "http://127.0.0.1:8000/predict" -F "file=@RS_Rust_1918.JPG"
 ```python
 import requests
 
-with open("RS_Rust_1918.JPG", "rb") as f:
+with open("Sample_1.jpg", "rb") as f:
     r = requests.post("http://127.0.0.1:8000/predict", files={"file": f})
 print(r.json())
 ```
@@ -71,22 +71,22 @@ print(r.json())
 
 ```json
 {
-  "filename": "RS_Rust_1918.JPG",
-  "prediction": "Corn_(maize)___Common_rust_",
-  "label": "Common rust",
-  "confidence": 1.0,
+  "filename": "Sample_1.jpg",
+  "prediction": "Common_Rust",
+  "label": "Common Rust",
+  "confidence": 0.838,
   "is_confident": true,
   "threshold": 0.7,
   "message": null,
   "top_k": [
-    { "disease": "Corn_(maize)___Common_rust_", "label": "Common rust", "confidence": 1.0 },
-    { "disease": "Corn_(maize)___Cercospora_leaf_spot Gray_leaf_spot", "label": "Cercospora leaf spot Gray leaf spot", "confidence": 0.0 },
-    { "disease": "Corn_(maize)___healthy", "label": "Healthy", "confidence": 0.0 }
+    { "disease": "Common_Rust", "label": "Common Rust", "confidence": 0.838 },
+    { "disease": "Gray_Leaf_Spot", "label": "Gray Leaf Spot", "confidence": 0.087 },
+    { "disease": "Northern_Leaf_Blight", "label": "Northern Leaf Blight", "confidence": 0.061 }
   ]
 }
 ```
 
-- **`prediction`** is the raw class name (matches your training labels exactly).
+- **`prediction`** is the raw class name (matches the training labels exactly).
 - **`label`** is a cleaned-up version for showing in the UI.
 - **`confidence`** is the top softmax probability (0–1).
 - **`top_k`** lets the front-end show the runners-up (and the margin between them).
@@ -95,7 +95,7 @@ print(r.json())
 
 If the top confidence is below the threshold (default **0.70**), the response sets `is_confident: false` and fills in a helpful `message` — the intended UX is "best guess, but unsure — retake the photo" instead of a confident wrong answer.
 
-Be honest with yourself about this for now: a model trained from scratch on lab-clean PlantVillage tends to be **over-confident** (you saw 100% on the rust image), so raw softmax is a weak uncertainty signal. This gate is deliberately a **scaffold**. It becomes genuinely useful once we (a) calibrate the model with temperature scaling and (b) add real field data — the robustness track we discussed. The plumbing is here now so we don't have to touch the API later.
+This gate is deliberately a **scaffold**. Raw softmax is only a rough uncertainty signal — the trained LeViT is well-behaved on field photos (e.g. it correctly drops a borderline rust image to ~70%), but the gate becomes genuinely reliable once we add **temperature-scaling calibration**. The plumbing is here now so we don't have to touch the API later.
 
 ## Other endpoints
 
@@ -108,9 +108,7 @@ Everything has a sensible default matching your files. Override with environment
 
 | Variable | Default | Meaning |
 |----------|---------|---------|
-| `CROPGUARD_CHECKPOINT` | `swin_cropguard.pth` | weights file |
-| `CROPGUARD_CLASSES` | `class_names.json` | class list |
-| `CROPGUARD_SWIN_REPO` | `Swin-Transformer` | cloned repo path |
+| `CROPGUARD_CHECKPOINT` | `levit_cropguard.pth` | trained LeViT weights file |
 | `CROPGUARD_CONF_THRESHOLD` | `0.70` | below this → `is_confident: false` |
 | `CROPGUARD_MAX_UPLOAD_MB` | `10` | reject bigger uploads |
 | `CROPGUARD_TOPK` | `3` | how many predictions to return |
@@ -121,14 +119,13 @@ Everything has a sensible default matching your files. Override with environment
 
 - **`503 Model is still loading`** → the first request arrived before the model finished loading. Wait a second and retry (mostly relevant on cold start).
 - **`400 Could not read that file as an image`** → the upload wasn't a valid JPG/PNG, or the field name wasn't `file`.
-- **`FileNotFoundError` about `models/swin_transformer.py`** on startup → the `Swin-Transformer/` repo isn't cloned in this folder (see Step 1), or `CROPGUARD_SWIN_REPO` points elsewhere.
-- **Import error on `timm.models.layers`** → same timm-version gotcha as Step 1 (`pip install "timm==0.9.16"`).
+- **`FileNotFoundError` about `levit_cropguard.pth`** on startup → the trained checkpoint isn't in this folder, or `CROPGUARD_CHECKPOINT` points elsewhere.
 
 ---
 
 ## What comes next
 
-3. **XAI heatmap** — the standout feature. Add attention-based explainability for Swin (attention rollout / `pytorch-grad-cam` with a reshape transform) so `/predict` can also return a heatmap of *where* the model looked. This is what makes CropGuard more than "another classifier."
+3. **XAI heatmap** — the standout feature. Grad-CAM explanations (implemented from scratch) so `/explain` returns a heatmap of *where* the model looked. This is what makes CropGuard more than "another classifier."
 4. **Web app** — React + Tailwind upload UI calling this API; Node/Express for auth + prediction history in MongoDB.
 5. **Containerize + deploy** — Docker, then Azure (ties to your Azure cert).
 

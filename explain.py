@@ -1,36 +1,39 @@
 """
-CropGuard AI — Explainability (Grad-CAM for Swin), from scratch (Step 3).
+CropGuard AI — Explainability (Grad-CAM), from scratch (Step 3).
 ================================================================================
 Turns a prediction into a *reason*: a heatmap over the leaf showing which regions
 pushed the model toward its answer. This is the feature that makes CropGuard more
 than "just a classifier" — you can visually check the model is looking at the
 actual lesions, not the background.
 
-WHY GRAD-CAM (not attention rollout) for Swin:
-  Swin uses *windowed* attention, so raw attention maps are local and awkward to
-  stitch into one full-image explanation. Grad-CAM sidesteps that: it asks "how
-  much does each feature-map location, weighted by its gradient w.r.t. the chosen
-  class, support that class?" It works on any conv/transformer feature map.
+WHY GRAD-CAM (not attention rollout):
+  Grad-CAM asks "how much does each feature-map location, weighted by its gradient
+  w.r.t. the chosen class, support that class?" It works on any conv/transformer
+  feature map and produces one clean full-image explanation, without the fiddliness
+  of stitching per-head attention into a single map.
 
 HOW IT WORKS HERE (the from-scratch recipe):
-  1. Hook a Swin stage's last block (its `norm1`) to grab that layer's output
-     activations on the forward pass.
+  1. Hook a token-grid layer to grab its output activations on the forward pass.
   2. Do a forward pass, pick the target class (top-1 by default), and backprop
      that class score so we also capture the gradients at that same layer.
-  3. Swin tokens are a flattened grid, so reshape (1, L, C) back to (side, side, C).
+  3. The tokens are a flattened grid, so reshape (1, L, C) back to (side, side, C).
   4. Global-average-pool the gradients over the grid -> one weight per channel.
   5. Weighted sum of the activation channels -> ReLU -> normalize to [0,1].
   6. Upsample the small map to the image size, colorize (jet), and alpha-blend it
      over the original photo. Return it as a base64 PNG data URL.
 
 RESOLUTION / the `stage` knob:
-  Swin-Tiny's stages get smaller and more semantic as you go deeper:
-    stage 0: 56x56, stage 1: 28x28, stage 2 (penultimate): 14x14, stage 3 (last): 7x7.
-  Reading Grad-CAM off the LAST stage (7x7) is the most "semantic" but very coarse
-  — you get a soft blob, not lesion-tight detail. The PENULTIMATE stage (14x14)
-  localizes finer at a small cost in semantics. "combined" averages both for a
-  balance. Pick per-image with the `stage` argument ("last" | "penultimate" |
+  A vision transformer's token grids get smaller and more semantic with depth.
+  Reading Grad-CAM off the DEEPEST ("last") grid is the most semantic but coarse —
+  a soft blob rather than lesion-tight detail. The PENULTIMATE grid localizes finer
+  at a small cost in semantics. "combined" averages both for a balance. The right
+  grid layers are auto-discovered per model (see get_target_layers), so this adapts
+  to the served LeViT — and to any other token-based backbone — without hardcoding
+  module paths. Pick per-image with the `stage` argument ("last" | "penultimate" |
   "combined"); different photos localize best at different depths.
+
+  For the served LeViT-256 @ 224 the discovered grids are 14×14 -> 7×7 -> 4×4, so
+  "last" = 4×4 (coarsest) and "penultimate" = 7×7 (the sharpest useful map).
 
 Only numpy + Pillow + torch are needed (no extra dependencies). Torch is imported
 lazily inside the functions that use it, so the image helpers below can be unit-
@@ -48,15 +51,6 @@ VALID_STAGES = ("last", "penultimate", "combined")
 
 
 # --- Locating the layer(s) to explain ----------------------------------------
-def _is_swin(model):
-    """True if this looks like the Microsoft Swin model (has stage.blocks.norm1)."""
-    try:
-        _ = model.layers[-1].blocks[-1].norm1
-        return True
-    except (AttributeError, IndexError, TypeError):
-        return False
-
-
 def _discover_token_layers(model, example_input):
     """Auto-locate a model's token-grid layers for Grad-CAM by watching one forward
     pass. Records every LEAF module whose output is a token tensor (1, N, C) with N
@@ -70,7 +64,7 @@ def _discover_token_layers(model, example_input):
 
     For LeViT-256 @ 224 the grids are 14×14 (196) -> 7×7 (49) -> 4×4 (16), so the
     deepest representative (4×4, most semantic) maps to "last" and 7×7 to
-    "penultimate" — directly analogous to Swin's last/penultimate stages."""
+    "penultimate"."""
     import torch
 
     cached = getattr(model, "_cropguard_token_layers", None)
@@ -131,24 +125,21 @@ def get_target_layers(model, stage="last", example_input=None):
       - "combined"    -> both of the above (their CAMs get merged)
     Returns a list so the extractor can hook one or several layers uniformly.
 
-    Swin uses its known stage layout directly. Any other backend (e.g. the
-    field-trained LeViT) is auto-discovered from a dummy forward pass, which needs
-    `example_input` (a preprocessed (1,3,H,W) tensor on the model's device)."""
+    The token-grid layers are auto-discovered from a dummy forward pass, which
+    needs `example_input` (a preprocessed (1,3,H,W) tensor on the model's device).
+    This adapts to the served LeViT and any other token-based backbone without
+    hardcoding module paths."""
     if stage not in VALID_STAGES:
         raise ValueError(f"Unknown stage '{stage}'; use one of {VALID_STAGES}.")
 
-    if _is_swin(model):
-        last = model.layers[-1].blocks[-1].norm1
-        penult = model.layers[-2].blocks[-1].norm1
-    else:
-        if example_input is None:
-            raise RuntimeError(
-                "Auto-discovering Grad-CAM layers for a non-Swin model needs an "
-                "example input tensor; call get_target_layers(model, stage, example_input=x)."
-            )
-        ordered = _discover_token_layers(model, example_input)  # shallow -> deep
-        last = ordered[-1]
-        penult = ordered[-2] if len(ordered) >= 2 else ordered[-1]
+    if example_input is None:
+        raise RuntimeError(
+            "Auto-discovering Grad-CAM layers needs an example input tensor; "
+            "call get_target_layers(model, stage, example_input=x)."
+        )
+    ordered = _discover_token_layers(model, example_input)  # shallow -> deep
+    last = ordered[-1]
+    penult = ordered[-2] if len(ordered) >= 2 else ordered[-1]
 
     if stage == "last":
         return [last]
@@ -296,7 +287,7 @@ def to_data_url(pil_image, fmt="PNG"):
 def explain_image(cg_model, pil_image, topk=3, alpha=0.45, class_idx=None, stage="last"):
     """Run prediction + Grad-CAM on a PIL image using a loaded CropGuardModel.
 
-    stage: "last" (7x7, coarse/semantic), "penultimate" (14x14, finer), or
+    stage: "last" (coarsest, most semantic), "penultimate" (finer), or
            "combined" (both, averaged). See module docstring.
 
     Returns a dict:

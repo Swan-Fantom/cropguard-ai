@@ -9,7 +9,8 @@ It builds the SAME architecture the served checkpoint uses (levit_256) and recor
 for a dummy 224x224 input, every leaf-module output shaped (1, N, C) where N is a
 perfect square — i.e. a token grid we can turn into a heatmap. Those are the
 candidate Grad-CAM targets; the last few (deepest, smallest grid) are the useful
-ones, analogous to Swin's last/penultimate stages.
+ones — the deepest maps to the coarse/semantic "last" stage and the next one up to
+the finer "penultimate" stage.
 
 It prints the list and also saves it to `levit_layers.txt` in this folder, so it
 can be read back to wire get_target_layers() in explain.py correctly (rather than

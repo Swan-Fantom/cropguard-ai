@@ -1,40 +1,33 @@
 """
 CropGuard AI — shared preprocessing (training/serving parity).
 ================================================================================
-Matches the VALIDATION transform from your Kaggle training exactly, so local
-inference / the API produce the same results as your validated accuracy. This
-module is imported by infer.py now and will be reused by the FastAPI service
-later so preprocessing can never drift between train and serve.
+The inference transform MUST match the evaluation transform used in training,
+so local inference / the API reproduce the validated accuracy. Imported by both
+infer.py and the FastAPI service (app.py) so preprocessing can never drift
+between train and serve.
 
-Your Kaggle val_transform was:
-    Resize((224, 224))  ->  ToTensor  ->  Normalize(ImageNet mean/std)
+The LeViT eval transform (from train_levit.py) is:
+    Resize((img_size, img_size))  ->  ToTensor  ->  Normalize(mean, std)
 
-No leaf segmentation — your real pipeline does not segment.
+The exact mean/std/img_size are read from the model checkpoint and passed in, so
+serving always matches the model that was trained. No leaf segmentation — the
+field-training pipeline does not segment (segmentation reintroduced a background
+shortcut and blacked out diseased tissue).
 """
 
 from torchvision import transforms
 
+# ImageNet defaults — used when a checkpoint doesn't specify its own.
 IMG_SIZE = 224
-
-# ImageNet normalization — the exact mean/std used in your training transforms.
 NORM_MEAN = [0.485, 0.456, 0.406]
 NORM_STD = [0.229, 0.224, 0.225]
 
 
-def build_val_transform():
-    """Validation/inference transform — matches training's val_transform exactly."""
-    return transforms.Compose([
-        transforms.Resize((IMG_SIZE, IMG_SIZE)),
-        transforms.ToTensor(),
-        transforms.Normalize(NORM_MEAN, NORM_STD),
-    ])
-
-
 def build_eval_transform(mean=NORM_MEAN, std=NORM_STD, img_size=IMG_SIZE):
-    """Same square-resize eval transform, but for an arbitrary backbone's own
-    normalization / input size. The LeViT backend reads mean/std/img_size from its
-    checkpoint and passes them here, so serving matches train_levit.py's eval_tf
-    exactly. With no args it reproduces build_val_transform() (ImageNet, 224)."""
+    """Square-resize eval transform for the model's own normalization / input size.
+    The LeViT backend reads mean/std/img_size from its checkpoint and passes them
+    here, so serving matches train_levit.py's eval transform exactly. With no args
+    it reproduces the ImageNet-224 default."""
     return transforms.Compose([
         transforms.Resize((int(img_size), int(img_size))),
         transforms.ToTensor(),

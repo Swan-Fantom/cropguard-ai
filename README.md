@@ -149,8 +149,8 @@ npm run dev                         # → http://localhost:5173
 
 Open **http://localhost:5173**, sign up, and diagnose a leaf.
 
-More detail per step lives in `GETTING_STARTED.md`, `STEP2_FASTAPI.md`,
-`STEP3_XAI.md`, and `STEP4_WEBAPP.md`.
+More detail per step lives in `STEP2_FASTAPI.md`, `STEP3_XAI.md`, and
+`STEP4_WEBAPP.md`.
 
 ## Project layout
 
@@ -158,7 +158,7 @@ More detail per step lives in `GETTING_STARTED.md`, `STEP2_FASTAPI.md`,
 CropGuard/
 ├─ app.py                 FastAPI ML service (/predict, /explain)
 ├─ model.py               model build/load + predict core
-├─ explain.py             from-scratch Grad-CAM (backend-agnostic)
+├─ explain.py             from-scratch Grad-CAM (auto-discovers token layers)
 ├─ preprocessing.py       inference transforms (must match training)
 ├─ infer.py               CLI inference
 ├─ train_levit.py         LeViT fine-tuning script

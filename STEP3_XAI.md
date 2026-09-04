@@ -6,7 +6,7 @@ Your API can now say *why*. Alongside the diagnosis, `POST /explain` returns a *
 
 | File | Role |
 |------|------|
-| `explain.py` | **New.** From-scratch Grad-CAM for Swin — hooks the last stage, builds the class-activation map, colorizes it, and overlays it on your image. |
+| `explain.py` | **New.** From-scratch Grad-CAM — hooks a token-grid layer, builds the class-activation map, colorizes it, and overlays it on your image. |
 | `app.py` | **New endpoint** `POST /explain` (plus a small refactor: upload validation is now shared with `/predict`). |
 | `explain_test.html` | **New.** A throwaway browser tool to *see* the heatmap. Not the real app — that's Step 4. |
 
@@ -30,13 +30,13 @@ Open **`explain_test.html`** in your browser (double-click it). Pick a leaf imag
 
 ## Tuning heatmap resolution (the "Detail" dropdown / `stage`)
 
-Swin builds features in stages that get smaller and more abstract with depth. Grad-CAM can be read off different stages, trading detail for semantics:
+A vision transformer builds token grids that get smaller and more abstract with depth. Grad-CAM can be read off different grids, trading detail for semantics. The layers are auto-discovered per model, so the grid sizes below are the ones found for the served LeViT-256 @ 224 (14×14 → 7×7 → 4×4):
 
 | Setting | Grid | Character |
 |---------|------|-----------|
-| **Coarse** | 7×7 | Most semantic, but a big soft blob. The original Step-3 default. |
-| **Finer** | 14×14 | Localizes tighter on lesions; slightly less abstract. |
-| **Combined** (default) | 14×14 + 7×7 averaged | Balance of the two — usually the most readable. |
+| **Coarse** (`last`) | 4×4 | Most semantic, but a big soft blob. |
+| **Finer** (`penultimate`) | 7×7 | Localizes tighter on lesions; slightly less abstract. |
+| **Combined** (default) | 7×7 + 4×4 averaged | Balance of the two — usually the most readable. |
 
 Different photos localize best at different depths, so the tester has a **Detail** dropdown to compare them on your own images. The API default is `combined` (set `CROPGUARD_CAM_STAGE` to change it, or pass a `stage` form field per request).
 
@@ -45,7 +45,7 @@ Different photos localize best at different depths, so the tester has a **Detail
 ```python
 import requests, base64
 
-with open("RS_Rust_1918.JPG", "rb") as f:
+with open("Sample_1.jpg", "rb") as f:
     r = requests.post(
         "http://127.0.0.1:8000/explain",
         files={"file": f},
@@ -71,10 +71,10 @@ print("saved heatmap.png")
 
 ```json
 {
-  "filename": "RS_Rust_1918.JPG",
-  "prediction": "Corn_(maize)___Common_rust_",
-  "label": "Common rust",
-  "confidence": 1.0,
+  "filename": "Sample_1.jpg",
+  "prediction": "Common_Rust",
+  "label": "Common Rust",
+  "confidence": 0.838,
   "is_confident": true,
   "threshold": 0.7,
   "stage": "combined",
@@ -91,17 +91,17 @@ It's the same shape as `/predict`, with two extra fields: **`heatmap`** (a ready
 
 Grad-CAM answers: *"Which parts of the last feature map, weighted by how much they influence the chosen class, support that prediction?"*
 
-1. **Hook** the last Swin stage's final block (`model.layers[-1].blocks[-1].norm1`) to grab its output on the forward pass.
+1. **Hook** a token-grid layer to grab its output activations on the forward pass. The layer is *auto-discovered* from a dummy forward pass (the deepest module whose output is a square token grid), so there's no hardcoded module path — it adapts to the served LeViT and to other timm versions.
 2. **Forward + backward:** run the image, pick the top class, and backprop that class score to get gradients at that same layer.
-3. **Reshape:** Swin's last stage is a 7×7 grid flattened to 49 tokens, so reshape `(1, 49, C)` back to `(7, 7, C)`.
+3. **Reshape:** the tokens are a flattened square grid (e.g. LeViT's 7×7 = 49 tokens), so reshape `(1, L, C)` back to `(side, side, C)`.
 4. **Weight & combine:** average the gradients over the grid to get one weight per channel, take the weighted sum of the activation channels, then **ReLU** (keep only positive evidence).
-5. **Normalize → upsample → colorize** the 7×7 map up to the image, apply a jet colormap, and alpha-blend it over the photo.
+5. **Normalize → upsample → colorize** the small map up to the image, apply a jet colormap, and alpha-blend it over the photo.
 
 A few honest caveats worth knowing:
 
-- The map is **coarse** — it shows *regions*, not pixel-perfect outlines. That's normal for Grad-CAM on a transformer. The **Detail** setting above (7×7 → 14×14) tightens it up, but it will never be a crisp per-lesion mask.
-- **Black/segmented backgrounds cause an edge artifact.** On lab-style images with a solid black background (like the PlantVillage training data), the heatmap tends to light up the *border* rather than the leaf. Reason: black pixels become the most extreme values after ImageNet normalization, which spikes the tokens over the background. On natural field photos this largely goes away and the map moves onto the leaf — a useful reminder that the heatmap partly reflects the data, not just the model.
-- **Why Grad-CAM and not attention rollout?** Swin's attention is computed inside shifted local windows, so raw attention doesn't stitch into a clean whole-leaf map. Grad-CAM avoids that and is the reliable choice here. (Attention rollout could be a later experiment.)
+- The map is **coarse** — it shows *regions*, not pixel-perfect outlines. That's normal for Grad-CAM on a transformer. The **Detail** setting above (Coarse → Finer, i.e. 4×4 → 7×7) tightens it up, but it will never be a crisp per-lesion mask.
+- **Black/segmented backgrounds cause an edge artifact.** On lab-style images with a solid black background (the kind you get from segmentation), the heatmap tends to light up the *border* rather than the leaf. Reason: black pixels become the most extreme values after ImageNet normalization, which spikes the tokens over the background. On natural field photos — the kind this model was trained on — this largely goes away and the map moves onto the leaf, a useful reminder that the heatmap partly reflects the data, not just the model.
+- **Why Grad-CAM and not attention rollout?** Stitching per-head, per-layer attention into one clean whole-leaf map is fiddly and architecture-specific. Grad-CAM sidesteps that — it works off the feature map and its gradients — and is the reliable choice here. (Attention rollout could be a later experiment.)
 - The heatmap explains **where**, not **whether the model is right**. A confident, wrong prediction can still produce a tidy-looking heatmap — so treat it as a sanity check, not proof. Genuinely fixing wrong-but-confident calls on field photos is the model-robustness track, not this feature.
 
 ---
