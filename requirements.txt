@@ -1,0 +1,20 @@
+# CropGuard AI — dependencies
+# Install with:  pip install -r requirements.txt
+
+# --- Step 1: model + inference core (infer.py, model.py, preprocessing.py) ---
+torch>=2.0
+torchvision>=0.15
+# timm provides the field-trained LeViT (the default served model, built with
+# timm.create_model("levit_256", ...)). It is ALSO required by the optional Swin
+# backend: the Microsoft repo's swin_transformer.py imports
+# `from timm.models.layers import DropPath, to_2tuple, trunc_normal_`.
+# If that import errors on a very new timm, either pin an older timm (e.g.
+# `pip install "timm==0.9.16"`) or edit that import to `from timm.layers import ...`.
+timm>=0.9.0
+pillow>=9.0
+numpy>=1.23
+
+# --- Step 2: FastAPI ML microservice (app.py) --------------------------------
+fastapi>=0.110
+uvicorn[standard]>=0.27        # ASGI server: run with `uvicorn app:app --reload`
+python-multipart>=0.0.9        # required by FastAPI to accept file uploads

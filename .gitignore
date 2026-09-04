@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+*.egg-info/
+
+# Trained model weights — too large for git.
+# Store via Git LFS, Hugging Face Hub, or GitHub release assets instead.
+*.pth
+*.pt
+*.onnx
+*.h5
+
+# Datasets / large inputs — download separately, don't commit (see README)
+data/
+datasets/
+Datasets-main/
+
+# Cloned third-party model code (Microsoft Swin-Transformer). Re-clone with:
+#   git clone https://github.com/microsoft/Swin-Transformer.git
+Swin-Transformer/
+
+# Environment / secrets
+.env
+
+# OS / editors
+.DS_Store
+.idea/
+.vscode/

@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CropGuard — heatmap tester (dev tool)</title>
+<style>
+  :root { color-scheme: light; }
+  body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+         max-width: 860px; margin: 40px auto; padding: 0 20px; color: #1a2b1a;
+         background: #f7faf6; }
+  h1 { font-size: 1.4rem; margin-bottom: 4px; }
+  .note { color: #5a6b5a; font-size: .9rem; margin-top: 0; }
+  .card { background: #fff; border: 1px solid #e0e8dd; border-radius: 12px;
+          padding: 20px; margin-top: 20px; box-shadow: 0 1px 3px rgba(0,0,0,.05); }
+  input[type=file] { margin-right: 10px; }
+  button { background: #2f7d32; color: #fff; border: 0; padding: 9px 18px;
+           border-radius: 8px; font-size: .95rem; cursor: pointer; }
+  button:disabled { opacity: .6; cursor: default; }
+  select { padding: 7px 8px; border-radius: 8px; border: 1px solid #cdd8c8;
+           background: #fff; font-size: .9rem; margin-right: 10px; }
+  .row { display: flex; gap: 20px; flex-wrap: wrap; margin-top: 16px; }
+  .row figure { margin: 0; }
+  .row img { max-width: 340px; width: 100%; border-radius: 10px; border: 1px solid #e0e8dd; }
+  figcaption { font-size: .85rem; color: #5a6b5a; margin-top: 6px; text-align: center; }
+  .verdict { font-size: 1.15rem; font-weight: 600; margin: 4px 0; }
+  .conf { color: #2f7d32; }
+  .low { color: #b25400; }
+  .bars { margin-top: 12px; font-size: .9rem; }
+  .bar { display: flex; align-items: center; gap: 8px; margin: 3px 0; }
+  .bar .lbl { width: 210px; }
+  .bar .track { flex: 1; background: #eef2ec; border-radius: 5px; overflow: hidden; height: 12px; }
+  .bar .fill { height: 100%; background: #74b476; }
+  .err { color: #b00020; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+  <h1>CropGuard — heatmap tester</h1>
+  <p class="note">A throwaway dev tool for viewing the <code>/explain</code> heatmap while building.
+     <strong>This is not the real app</strong> — the polished React interface is Step 4. Start the API first
+     (<code>uvicorn app:app --reload</code>), then open this file in your browser.</p>
+
+  <div class="card">
+    <input type="file" id="file" accept="image/*">
+    <label for="stage" style="margin:0 6px 0 4px;">Detail:</label>
+    <select id="stage" title="Grad-CAM resolution">
+      <option value="combined" selected>Combined (balanced)</option>
+      <option value="penultimate">Finer (sharper detail)</option>
+      <option value="last">Coarse (most semantic)</option>
+    </select>
+    <button id="go">Diagnose &amp; explain</button>
+    <div id="out"></div>
+  </div>
+
+<script>
+const API = "http://127.0.0.1:8000/explain";
+const $ = (id) => document.getElementById(id);
+
+$("go").onclick = async () => {
+  const f = $("file").files[0];
+  const out = $("out");
+  if (!f) { out.innerHTML = '<p class="err">Choose an image first.</p>'; return; }
+
+  const fd = new FormData();
+  fd.append("file", f);
+  fd.append("stage", $("stage").value);
+  $("go").disabled = true;
+  out.innerHTML = "<p>Analysing…</p>";
+
+  try {
+    const r = await fetch(API, { method: "POST", body: fd });
+    if (!r.ok) {
+      out.innerHTML = `<p class="err">Error ${r.status}: ${await r.text()}</p>`;
+      return;
+    }
+    const j = await r.json();
+    const conf = (j.confidence * 100).toFixed(1);
+    const cls = j.is_confident ? "conf" : "low";
+    const tag = j.is_confident ? "" : " (low confidence)";
+
+    const bars = j.top_k.map(t => {
+      const pct = (t.confidence * 100).toFixed(1);
+      return `<div class="bar"><span class="lbl">${t.label}</span>
+        <span class="track"><span class="fill" style="width:${pct}%"></span></span>
+        <span>${pct}%</span></div>`;
+    }).join("");
+
+    out.innerHTML = `
+      <p class="verdict">Diagnosis: <span class="${cls}">${j.label}${tag}</span> — ${conf}%</p>
+      <div class="row">
+        <figure><img id="orig"><figcaption>Uploaded image</figcaption></figure>
+        <figure><img src="${j.heatmap}"><figcaption>Where the model looked (Grad-CAM · ${j.stage})</figcaption></figure>
+      </div>
+      <div class="bars">${bars}</div>`;
+    $("orig").src = URL.createObjectURL(f);
+  } catch (e) {
+    out.innerHTML = `<p class="err">Request failed: ${e}\n\nIs the API running at 127.0.0.1:8000? (uvicorn app:app --reload)</p>`;
+  } finally {
+    $("go").disabled = false;
+  }
+};
+</script>
+</body>
+</html>
