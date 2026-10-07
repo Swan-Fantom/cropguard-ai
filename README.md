@@ -24,8 +24,6 @@ Python FastAPI microservice that runs the deep-learning model.
 - [Explainability (Grad-CAM)](#explainability-grad-cam)
 - [Running it locally](#running-it-locally)
 - [Project layout](#project-layout)
-- [Roadmap](#roadmap)
-- [Screenshots](#screenshots)
 
 ---
 
@@ -173,23 +171,6 @@ CropGuard/
       ├─ pages/           Login, Register, Diagnose, History
       └─ components/
 ```
-
-## Roadmap
-
-- [x] **Step 1** — Local model inference
-- [x] **Step 2** — FastAPI ML microservice
-- [x] **Step 3** — Grad-CAM explainability
-- [x] **Step 4** — Full-stack web app (React + Node/Express + MongoDB)
-- [ ] **Step 5** — Containerize each tier (Docker + docker-compose) and deploy to
-  the cloud (Azure). This step also adds production security hardening:
-  httpOnly-cookie auth + CSRF protection, rate limiting, and CORS lockdown.
-- [ ] Confidence calibration (temperature scaling) + a real "unsure" gate.
-
-## Screenshots
-
-> _Add screenshots of the Diagnose page (with heatmap) and History here._
-
----
 
 Built as a portfolio project exploring the full lifecycle of an ML product:
 model training, explainability, API design, and full-stack integration.
