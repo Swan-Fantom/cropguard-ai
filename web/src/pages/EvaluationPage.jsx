@@ -1,16 +1,16 @@
 const classMetrics = [
-  { name: "Common Rust", support: 109, precision: 1.0, recall: 0.97, f1: 0.985 },
-  { name: "Gray Leaf Spot", support: 25, precision: 0.89, recall: 1.0, f1: 0.942 },
-  { name: "Healthy", support: 104, precision: 0.99, recall: 1.0, f1: 0.995 },
-  { name: "Northern Leaf Blight", support: 100, precision: 1.0, recall: 1.0, f1: 1.0 },
+  { name: "Common Rust", support: 150, precision: 1.0, recall: 146 / 150, f1: 2 * 1 * (146 / 150) / (1 + 146 / 150) },
+  { name: "Gray Leaf Spot", support: 25, precision: 25 / 28, recall: 1.0, f1: 2 * (25 / 28) / (1 + 25 / 28) },
+  { name: "Healthy", support: 112, precision: 112 / 113, recall: 1.0, f1: 2 * (112 / 113) / (1 + 112 / 113) },
+  { name: "Northern Leaf Blight", support: 51, precision: 1.0, recall: 1.0, f1: 1.0 },
 ];
 
 const confusionMatrix = [
   ["Actual / Predicted", "Rust", "Gray spot", "Healthy", "Blight"],
-  ["Rust", 106, 3, 0, 0],
+  ["Rust", 146, 3, 1, 0],
   ["Gray spot", 0, 25, 0, 0],
-  ["Healthy", 0, 0, 104, 0],
-  ["Blight", 0, 0, 0, 100],
+  ["Healthy", 0, 0, 112, 0],
+  ["Blight", 0, 0, 0, 51],
 ];
 
 function percentage(value) {
