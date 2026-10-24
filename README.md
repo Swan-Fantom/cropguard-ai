@@ -180,17 +180,6 @@ CropGuard/
       └─ components/
 ```
 
-## Roadmap
-
-- [x] **Step 1** — Local model inference
-- [x] **Step 2** — FastAPI ML microservice
-- [x] **Step 3** — Grad-CAM explainability
-- [x] **Step 4** — Full-stack web app (React + Node/Express + MongoDB)
-- [ ] **Step 5** — Containerize each tier (Docker + docker-compose) and deploy to
-  the cloud (Azure). This step also adds production security hardening:
-  httpOnly-cookie auth + CSRF protection, rate limiting, and CORS lockdown.
-- [ ] Confidence calibration (temperature scaling) + a real "unsure" gate.
-
 ## Screenshots
 
 > _Add screenshots of the Diagnose page (with heatmap) and History here._
