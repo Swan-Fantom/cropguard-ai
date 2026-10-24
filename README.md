@@ -6,6 +6,10 @@ Upload a photo of a corn (maize) leaf and CropGuard classifies the disease, tell
 you how confident it is, and shows a **Grad-CAM heatmap** of the exact regions
 that drove its decision. Every diagnosis is saved to a per-user history.
 
+> **Important:** CropGuard supports early screening and prioritising cases for
+> inspection. It supports — not replaces — agricultural expert advice or an
+> on-site diagnosis. Low-confidence predictions require expert inspection.
+
 CropGuard is built as a **three-tier system**: a React single-page app talks to a
 Node/Express API (which owns authentication and history), which in turn calls a
 Python FastAPI microservice that runs the deep-learning model.
@@ -32,7 +36,9 @@ Python FastAPI microservice that runs the deep-learning model.
 - **Disease classification** across 4 classes: Common Rust, Gray Leaf Spot,
   Northern Leaf Blight, and Healthy.
 - **Confidence gating** — predictions below a threshold are flagged as
-  "low confidence / treat as a suggestion" rather than shown as a certain answer.
+  "expert inspection required" rather than shown as a certain answer.
+- **Evaluation view** — held-out test results include accuracy, macro-F1,
+  per-class precision/recall/F1, a confusion matrix, and dataset/field limitations.
 - **Visual explanations** — a Grad-CAM heatmap overlays the leaf, with a selectable
   detail level, so a user can see *why* the model decided what it did.
 - **User accounts** — register / log in with JWT-based auth; passwords are
