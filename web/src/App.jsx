@@ -6,6 +6,7 @@ import { Link, Navigate, Route, Routes, useLocation } from "react-router-dom";
 
 import { useAuth } from "./auth.jsx";
 import DiagnosePage from "./pages/DiagnosePage.jsx";
+import EvaluationPage from "./pages/EvaluationPage.jsx";
 import HistoryPage from "./pages/HistoryPage.jsx";
 import LoginPage from "./pages/LoginPage.jsx";
 import RegisterPage from "./pages/RegisterPage.jsx";
@@ -26,6 +27,9 @@ function NavBar() {
               </Link>
               <Link to="/history" className="text-gray-600 hover:text-brand-700">
                 History
+              </Link>
+              <Link to="/evaluation" className="text-gray-600 hover:text-brand-700">
+                Evaluation
               </Link>
               <span className="hidden text-gray-400 sm:inline">{user.email}</span>
               <button
@@ -86,6 +90,14 @@ export default function App() {
             element={
               <RequireAuth>
                 <HistoryPage />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/evaluation"
+            element={
+              <RequireAuth>
+                <EvaluationPage />
               </RequireAuth>
             }
           />

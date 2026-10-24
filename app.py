@@ -198,9 +198,9 @@ async def predict(file: UploadFile = File(...)):
     message = None
     if not is_confident:
         message = (
-            f"Low confidence ({top_conf * 100:.1f}%). This might be a leaf/condition "
-            "the model wasn't trained on, or the photo is unclear — try a sharp, "
-            "well-lit shot of a single leaf filling the frame."
+            f"Expert inspection required: confidence is only {top_conf * 100:.1f}%. "
+            "This may be a condition the model was not trained on, or the photo may "
+            "be unclear. Try a sharp, well-lit shot of a single leaf filling the frame."
         )
 
     return PredictResponse(
