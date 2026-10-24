@@ -149,14 +149,19 @@ export default function DiagnosePage() {
             </div>
             {!result.isConfident && (
               <p className="mt-2 text-sm text-amber-700">
-                Confidence is below the {Math.round(result.threshold * 100)}% threshold — treat
-                this as a suggestion. Try a sharper, well-lit photo of a single leaf filling the
-                frame.
+                Expert inspection required: confidence is below the{" "}
+                {Math.round(result.threshold * 100)}% threshold. Treat this as a screening
+                suggestion and try a sharper, well-lit photo of a single leaf filling the frame.
               </p>
             )}
             <TopKList topK={result.topK} />
           </div>
         )}
+
+        <p className="mt-6 border-t border-gray-100 pt-4 text-xs text-gray-500">
+          CropGuard supports early screening and prioritisation. It does not replace agricultural
+          expert advice or an on-site diagnosis.
+        </p>
       </div>
     </div>
   );
