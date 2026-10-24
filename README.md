@@ -28,7 +28,6 @@ Python FastAPI microservice that runs the deep-learning model.
 - [Explainability (Grad-CAM)](#explainability-grad-cam)
 - [Running it locally](#running-it-locally)
 - [Project layout](#project-layout)
-- [Roadmap](#roadmap)
 - [Screenshots](#screenshots)
 
 ---
